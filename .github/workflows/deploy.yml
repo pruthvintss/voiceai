@@ -1,0 +1,209 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Target environment"
+        required: true
+        default: "prod"
+        type: choice
+        options: [prod, staging]
+      image_tag:
+        description: "Image tag to deploy (defaults to commit SHA)"
+        required: false
+
+concurrency:
+  group: deploy-${{ github.event.inputs.environment || 'prod' }}
+  cancel-in-progress: false  # never cancel an in-progress deploy
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com
+  IMAGE_TAG: ${{ github.event.inputs.image_tag || github.sha }}
+
+jobs:
+  # ─── Build & Push ─────────────────────────────────────────────────────────────
+  build-and-push:
+    name: Build & Push Docker Images
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ env.IMAGE_TAG }}
+      api_image: ${{ steps.meta-api.outputs.tags }}
+      web_image: ${{ steps.meta-web.outputs.tags }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: API image metadata
+        id: meta-api
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.ECR_REGISTRY }}/voiceai-api
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Web image metadata
+        id: meta-web
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.ECR_REGISTRY }}/voiceai-web
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v5
+        with:
+          context: apps/api
+          push: true
+          tags: ${{ steps.meta-api.outputs.tags }}
+          labels: ${{ steps.meta-api.outputs.labels }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      - name: Build and push web image
+        uses: docker/build-push-action@v5
+        with:
+          context: apps/web
+          push: true
+          tags: ${{ steps.meta-web.outputs.tags }}
+          labels: ${{ steps.meta-web.outputs.labels }}
+          cache-from: type=gha,scope=web
+          cache-to: type=gha,mode=max,scope=web
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}
+            NEXT_PUBLIC_WS_URL=${{ secrets.NEXT_PUBLIC_WS_URL }}
+
+  # ─── Deploy to Kubernetes ─────────────────────────────────────────────────────
+  deploy:
+    name: Deploy to Kubernetes (${{ github.event.inputs.environment || 'prod' }})
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    environment:
+      name: ${{ github.event.inputs.environment || 'prod' }}
+      url: https://yourdomain.com
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ env.AWS_REGION }} \
+            --name ${{ secrets.EKS_CLUSTER_NAME }}
+
+      - name: Set up kustomize
+        uses: imranismail/setup-kustomize@v2
+
+      - name: Update image tags in kustomization
+        run: |
+          cd infra/k8s/overlays/${{ github.event.inputs.environment || 'prod' }}
+          kustomize edit set image \
+            "ghcr.io/your-org/voiceai-api=${{ env.ECR_REGISTRY }}/voiceai-api:sha-$(echo ${{ github.sha }} | cut -c1-7)" \
+            "ghcr.io/your-org/voiceai-web=${{ env.ECR_REGISTRY }}/voiceai-web:sha-$(echo ${{ github.sha }} | cut -c1-7)"
+
+      - name: Run database migrations
+        run: |
+          # Replace job name with a unique one per deploy to avoid conflicts
+          IMAGE="${{ env.ECR_REGISTRY }}/voiceai-api:sha-$(echo ${{ github.sha }} | cut -c1-7)"
+          sed "s|ghcr.io/your-org/voiceai-api:latest|${IMAGE}|g" infra/k8s/jobs.yaml \
+            | sed "s|name: voiceai-migrate|name: voiceai-migrate-$(echo ${{ github.sha }} | cut -c1-7)|g" \
+            | kubectl apply -f -
+
+          kubectl wait \
+            --for=condition=complete \
+            job/voiceai-migrate-$(echo ${{ github.sha }} | cut -c1-7) \
+            -n voiceai \
+            --timeout=120s
+
+      - name: Apply Kubernetes manifests
+        run: |
+          kustomize build infra/k8s/overlays/${{ github.event.inputs.environment || 'prod' }} \
+            | kubectl apply -f -
+
+      - name: Wait for rollout to complete
+        run: |
+          kubectl rollout status deployment/api    -n voiceai --timeout=300s
+          kubectl rollout status deployment/web    -n voiceai --timeout=300s
+          kubectl rollout status deployment/celery-worker -n voiceai --timeout=300s
+
+      - name: Verify deployment health
+        run: |
+          # Wait for pods to be fully ready
+          kubectl wait --for=condition=ready pod \
+            -l app=api -n voiceai --timeout=120s
+          kubectl wait --for=condition=ready pod \
+            -l app=web -n voiceai --timeout=120s
+
+  # ─── Notify ───────────────────────────────────────────────────────────────────
+  notify:
+    name: Notify Slack
+    runs-on: ubuntu-latest
+    needs: [build-and-push, deploy]
+    if: always()  # run even if deploy fails
+
+    steps:
+      - name: Notify success
+        if: needs.deploy.result == 'success'
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": ":white_check_mark: *VoiceAI deployed successfully*",
+              "attachments": [{
+                "color": "good",
+                "fields": [
+                  {"title": "Environment", "value": "${{ github.event.inputs.environment || 'prod' }}", "short": true},
+                  {"title": "Commit", "value": "<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ github.sha }}>" , "short": true},
+                  {"title": "Deployed by", "value": "${{ github.actor }}", "short": true}
+                ]
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
+
+      - name: Notify failure
+        if: needs.deploy.result == 'failure' || needs.build-and-push.result == 'failure'
+        uses: slackapi/slack-github-action@v1
+        with:
+          payload: |
+            {
+              "text": ":x: *VoiceAI deployment FAILED*",
+              "attachments": [{
+                "color": "danger",
+                "fields": [
+                  {"title": "Environment", "value": "${{ github.event.inputs.environment || 'prod' }}", "short": true},
+                  {"title": "Commit", "value": "<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ github.sha }}>", "short": true},
+                  {"title": "Run", "value": "<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View logs>", "short": true}
+                ]
+              }]
+            }
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK

@@ -1,0 +1,28 @@
+{
+  "name": "voiceai-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Production-grade realtime AI voice platform",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up",
+    "build": "docker compose build",
+    "down": "docker compose down",
+    "test": "npm run test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "setup": "./scripts/setup.sh",
+    "generate-keys": "python3 scripts/generate-keys.py",
+    "packages:build": "npm run build --workspace=packages/shared"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

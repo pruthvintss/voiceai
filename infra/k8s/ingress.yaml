@@ -1,0 +1,87 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: voiceai-ingress
+  namespace: voiceai
+  annotations:
+    # Ingress class
+    kubernetes.io/ingress.class: nginx
+
+    # TLS: cert-manager issues Let's Encrypt certificate automatically
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+
+    # WebSocket support — required for /ws/ paths
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
+
+    # Upgrade HTTP to WebSocket for /ws/ paths
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+
+    # Rate limiting
+    nginx.ingress.kubernetes.io/limit-connections: "20"
+    nginx.ingress.kubernetes.io/limit-rps: "30"
+
+    # Gzip
+    nginx.ingress.kubernetes.io/enable-gzip: "true"
+
+    # Security headers
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      add_header X-Frame-Options "SAMEORIGIN" always;
+      add_header X-Content-Type-Options "nosniff" always;
+      add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+      add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
+
+    # Body size limit (for audio uploads)
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+spec:
+  tls:
+    - hosts:
+        - yourdomain.com
+        - www.yourdomain.com
+      secretName: voiceai-tls-cert
+  rules:
+    - host: yourdomain.com
+      http:
+        paths:
+          # WebSocket connections
+          - path: /ws/
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 8000
+
+          # REST API
+          - path: /api/
+            pathType: Prefix
+            backend:
+              service:
+                name: api
+                port:
+                  number: 8000
+
+          # Next.js frontend — catch-all
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 3000
+
+    # www redirect (optional — remove if using www as primary)
+    - host: www.yourdomain.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: web
+                port:
+                  number: 3000

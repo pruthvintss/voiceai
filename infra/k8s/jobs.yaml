@@ -1,0 +1,47 @@
+---
+# Database Migration Job
+# Run this before deploying new API versions that require schema changes:
+#   kubectl apply -f infra/k8s/jobs.yaml
+#   kubectl wait --for=condition=complete job/voiceai-migrate -n voiceai --timeout=120s
+#
+# Delete the job after it completes (or set ttlSecondsAfterFinished):
+#   kubectl delete job voiceai-migrate -n voiceai
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: voiceai-migrate
+  namespace: voiceai
+  labels:
+    app: voiceai-migrate
+    app.kubernetes.io/component: migration
+spec:
+  # Automatically clean up 10 minutes after completion
+  ttlSecondsAfterFinished: 600
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app: voiceai-migrate
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrate
+          image: ghcr.io/your-org/voiceai-api:latest
+          imagePullPolicy: Always
+          command:
+            - alembic
+            - upgrade
+            - head
+          envFrom:
+            - configMapRef:
+                name: voiceai-config
+            - secretRef:
+                name: voiceai-secrets
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"

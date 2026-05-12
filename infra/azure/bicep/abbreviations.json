@@ -1,0 +1,15 @@
+{
+  "Microsoft.App/containerApps": "ca",
+  "Microsoft.App/managedEnvironments": "cae",
+  "Microsoft.Cache/Redis": "redis",
+  "Microsoft.ContainerRegistry/registries": "acr",
+  "Microsoft.DBforPostgreSQL/flexibleServers": "psql",
+  "Microsoft.Insights/components": "appi",
+  "Microsoft.KeyVault/vaults": "kv",
+  "Microsoft.ManagedIdentity/userAssignedIdentities": "id",
+  "Microsoft.Network/virtualNetworks": "vnet",
+  "Microsoft.OperationalInsights/workspaces": "log",
+  "Microsoft.Resources/resourceGroups": "rg",
+  "Microsoft.Storage/storageAccounts": "st",
+  "Microsoft.Web/staticSites": "stapp"
+}

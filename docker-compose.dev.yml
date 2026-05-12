@@ -1,0 +1,124 @@
+version: "3.9"
+
+# Development overrides — use with:
+#   docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile.dev
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    volumes:
+      - ./apps/api:/app
+      # Exclude compiled artifacts from the bind mount
+      - /app/__pycache__
+      - /app/.pytest_cache
+      - /app/.mypy_cache
+    ports:
+      - "8000:8000"
+    environment:
+      ENVIRONMENT: development
+      LOG_LEVEL: debug
+      # Hot-reload friendly settings
+      WATCHFILES_FORCE_POLLING: "true"
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile.dev
+    command: npm run dev
+    volumes:
+      - ./apps/web:/app
+      - /app/node_modules
+      - /app/.next
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_WS_URL: ws://localhost:8000
+
+  celery_worker:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./apps/api:/app
+      - /app/__pycache__
+    environment:
+      ENVIRONMENT: development
+      LOG_LEVEL: debug
+
+  celery_beat:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./apps/api:/app
+      - /app/__pycache__
+
+  postgres:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  # Disable nginx in dev — services are accessed directly on their ports
+  nginx:
+    profiles:
+      - nginx  # only started with: docker-compose --profile nginx up
+
+  # ─── Dev-only services ────────────────────────────────────────────────────────
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: voiceai_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@voiceai.local
+      PGADMIN_DEFAULT_PASSWORD: pgadmin
+      PGADMIN_CONFIG_SERVER_MODE: "False"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    ports:
+      - "5050:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+      - public
+    restart: unless-stopped
+
+  redis_commander:
+    image: rediscommander/redis-commander:latest
+    container_name: voiceai_redis_commander
+    environment:
+      REDIS_HOSTS: "main:redis:6379:0,celery_broker:redis:6379:1,celery_results:redis:6379:2"
+    ports:
+      - "8081:8081"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - internal
+      - public
+    restart: unless-stopped
+
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: voiceai_mailpit
+    ports:
+      - "8025:8025"   # Web UI
+      - "1025:1025"   # SMTP
+    networks:
+      - internal
+      - public
+    restart: unless-stopped
+
+volumes:
+  pgadmin_data:
+    driver: local

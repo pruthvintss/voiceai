@@ -1,0 +1,102 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: voiceai-dev
+
+resources:
+  - ../../  # base
+
+namePrefix: dev-
+
+# Dev uses fewer replicas and relaxed resource limits to run on smaller clusters
+patches:
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+    target:
+      kind: Deployment
+      name: api
+
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+    target:
+      kind: Deployment
+      name: web
+
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+    target:
+      kind: Deployment
+      name: celery-worker
+
+  # Lower resource limits for dev to fit on a single-node cluster
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: "100m"
+            memory: "128Mi"
+          limits:
+            cpu: "250m"
+            memory: "256Mi"
+    target:
+      kind: Deployment
+      name: api
+
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            cpu: "50m"
+            memory: "128Mi"
+          limits:
+            cpu: "200m"
+            memory: "256Mi"
+    target:
+      kind: Deployment
+      name: web
+
+  # Disable HPA in dev (fixed replica count)
+  - patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 1
+      - op: replace
+        path: /spec/maxReplicas
+        value: 1
+    target:
+      kind: HorizontalPodAutoscaler
+
+  # Smaller PVC sizes for dev
+  - patch: |-
+      - op: replace
+        path: /spec/resources/requests/storage
+        value: "2Gi"
+    target:
+      kind: PersistentVolumeClaim
+      name: postgres-pvc
+
+  - patch: |-
+      - op: replace
+        path: /spec/resources/requests/storage
+        value: "1Gi"
+    target:
+      kind: PersistentVolumeClaim
+      name: redis-pvc
+
+configMapGenerator:
+  - name: voiceai-config
+    behavior: merge
+    literals:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=debug
+      - CORS_ORIGINS=http://localhost:3000
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_WS_URL=ws://localhost:8000

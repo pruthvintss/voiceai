@@ -1,0 +1,124 @@
+# ── Environment & Secrets ─────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.json
+**/secrets.yaml
+# but keep the k8s secrets template
+!infra/k8s/secrets.yaml
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+wheels/
+.installed.cfg
+lib/
+lib64/
+.venv/
+venv/
+env/
+ENV/
+.python-version
+*.so
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+
+# ── Node.js ───────────────────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# ── Next.js ───────────────────────────────────────────────────────────────────
+.next/
+out/
+.vercel/
+next-env.d.ts
+*.tsbuildinfo
+
+# ── TypeScript ────────────────────────────────────────────────────────────────
+*.js.map
+*.d.ts.map
+
+# ── Build outputs ─────────────────────────────────────────────────────────────
+dist/
+build/
+.output/
+.cache/
+
+# ── Docker ────────────────────────────────────────────────────────────────────
+.docker/
+
+# ── Terraform ─────────────────────────────────────────────────────────────────
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+.terraform.lock.hcl
+*.tfvars
+!*.tfvars.example
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/
+*.log.*
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Alembic ───────────────────────────────────────────────────────────────────
+# Keep migration files, ignore compiled pyc inside alembic
+apps/api/alembic/versions/__pycache__/
+
+# ── Azure ─────────────────────────────────────────────────────────────────────
+.azure/
+infra/azure/bicep/*.parameters.json
+!infra/azure/bicep/main.bicepparam
