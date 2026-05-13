@@ -23,7 +23,7 @@ export interface Workspace {
 }
 
 export interface WorkspaceSettings {
-  defaultProvider: 'openai' | 'gemini'
+  defaultProvider: 'openai' | 'azure_openai' | 'gemini'
   defaultModel: string
   retentionDays: number
   autoSummarize: boolean
@@ -57,7 +57,7 @@ export interface Conversation {
   userId: string
   title: string
   status: ConversationStatus
-  provider: 'openai' | 'gemini'
+  provider: 'openai' | 'azure_openai' | 'gemini'
   model: string
   startedAt: string
   endedAt?: string
@@ -143,7 +143,7 @@ export interface MemorySearchResult {
 // API Key types
 // ============================================================
 
-export type ApiKeyProvider = 'openai' | 'gemini'
+export type ApiKeyProvider = 'openai' | 'azure_openai' | 'gemini'
 
 export interface ApiKey {
   id: string
@@ -279,7 +279,7 @@ export interface ConversationAnalytics {
 export type CallStatus = 'idle' | 'connecting' | 'ready' | 'active' | 'ended' | 'error'
 
 export interface CallConfig {
-  provider: 'openai' | 'gemini'
+  provider: 'openai' | 'azure_openai' | 'gemini'
   model: string
   apiKeyId?: string
   injectMemory: boolean
@@ -294,7 +294,7 @@ export interface ContextBundle {
   tokenCount: number
 }
 
-export type CallProvider = 'openai' | 'gemini'
+export type CallProvider = 'openai' | 'azure_openai' | 'gemini'
 
 // ============================================================
 // WebSocket message types
@@ -465,7 +465,7 @@ export interface UserSettings {
   notifications: NotificationSettings
   audioInputDeviceId?: string
   audioOutputDeviceId?: string
-  preferredProvider: 'openai' | 'gemini'
+  preferredProvider: 'openai' | 'azure_openai' | 'gemini'
   preferredModel: string
 }
 

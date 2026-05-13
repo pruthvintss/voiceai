@@ -44,12 +44,28 @@ import { useToast } from '@/hooks/useToast'
 import { formatRelativeTime, formatNumber } from '@/lib/utils'
 import type { ApiKeyProvider } from '@/types'
 
+const PROVIDER_LABELS: Record<ApiKeyProvider, string> = {
+  openai: 'OpenAI',
+  azure_openai: 'Azure OpenAI',
+  gemini: 'Google Gemini',
+}
+
+const PROVIDER_COLORS: Record<ApiKeyProvider, string> = {
+  openai: 'text-green-400 border-green-500/30',
+  azure_openai: 'text-blue-400 border-blue-500/30',
+  gemini: 'text-purple-400 border-purple-500/30',
+}
+
 const addKeySchema = z.object({
   name: z.string().min(1, 'Name is required'),
-  provider: z.enum(['openai', 'gemini']),
+  provider: z.enum(['openai', 'azure_openai', 'gemini']),
   key: z.string().min(10, 'API key is required'),
+  azureEndpoint: z.string().optional(),
   setAsDefault: z.boolean(),
-})
+}).refine(
+  (d) => d.provider !== 'azure_openai' || (d.azureEndpoint && d.azureEndpoint.length > 0),
+  { message: 'Azure endpoint is required for Azure OpenAI', path: ['azureEndpoint'] }
+)
 
 type AddKeyData = z.infer<typeof addKeySchema>
 
@@ -69,12 +85,15 @@ export default function ApiKeysPage() {
       apiKeysApi.create({
         name: data.name,
         provider: data.provider as ApiKeyProvider,
-        key: data.key,
+        key: data.provider === 'azure_openai'
+          ? `${data.key}|||${data.azureEndpoint}`
+          : data.key,
         setAsDefault: data.setAsDefault,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['api-keys'] })
       setAddDialogOpen(false)
+      reset()
       toast({ title: 'API key added', variant: 'success' })
     },
     onError: () => {
@@ -119,11 +138,10 @@ export default function ApiKeysPage() {
     formState: { errors },
   } = useForm<AddKeyData>({
     resolver: zodResolver(addKeySchema),
-    defaultValues: {
-      provider: 'openai',
-      setAsDefault: false,
-    },
+    defaultValues: { provider: 'openai', setAsDefault: false },
   })
+
+  const selectedProvider = watch('provider')
 
   const toggleShowKey = (id: string) => {
     setShowKeys((prev) => {
@@ -134,13 +152,19 @@ export default function ApiKeysPage() {
     })
   }
 
+  const keyPlaceholder = () => {
+    if (selectedProvider === 'openai') return 'sk-...'
+    if (selectedProvider === 'azure_openai') return 'Azure OpenAI API key'
+    return 'AIza...'
+  }
+
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">API Keys</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Bring your own API keys for OpenAI and Google Gemini
+            Bring your own keys for OpenAI, Azure OpenAI, and Google Gemini
           </p>
         </div>
         <Button onClick={() => setAddDialogOpen(true)} className="gap-1.5">
@@ -153,16 +177,14 @@ export default function ApiKeysPage() {
       <div className="rounded-lg border border-border overflow-hidden">
         {isLoading ? (
           <div className="p-4 space-y-3">
-            {[1, 2, 3].map((i) => (
-              <Skeleton key={i} className="h-12 w-full" />
-            ))}
+            {[1, 2, 3].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
           </div>
         ) : !keys?.length ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <Key className="h-8 w-8 text-muted-foreground mb-2" />
             <p className="text-sm font-medium">No API keys configured</p>
             <p className="text-xs text-muted-foreground mt-1 mb-4">
-              Add your OpenAI or Gemini API key to get started
+              Add your OpenAI, Azure OpenAI, or Gemini API key to get started
             </p>
             <Button size="sm" onClick={() => setAddDialogOpen(true)}>
               Add First Key
@@ -195,42 +217,32 @@ export default function ApiKeysPage() {
                   <TableCell>
                     <Badge
                       variant="outline"
-                      className={
-                        key.provider === 'openai'
-                          ? 'text-green-400 border-green-500/30 text-xs'
-                          : 'text-blue-400 border-blue-500/30 text-xs'
-                      }
+                      className={`text-xs ${PROVIDER_COLORS[key.provider as ApiKeyProvider] ?? ''}`}
                     >
-                      {key.provider === 'openai' ? 'OpenAI' : 'Gemini'}
+                      {PROVIDER_LABELS[key.provider as ApiKeyProvider] ?? key.provider}
                     </Badge>
                   </TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">
                     <div className="flex items-center gap-1">
                       {showKeys.has(key.id)
                         ? key.maskedKey
-                        : key.maskedKey.replace(/[^.]/g, '•').slice(0, 12) + key.maskedKey.slice(-4)}
+                        : '••••••••' + key.maskedKey.slice(-4)}
                       <button
                         onClick={() => toggleShowKey(key.id)}
                         className="text-muted-foreground hover:text-foreground"
                       >
-                        {showKeys.has(key.id) ? (
-                          <EyeOff className="h-3 w-3" />
-                        ) : (
-                          <Eye className="h-3 w-3" />
-                        )}
+                        {showKeys.has(key.id) ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
                       </button>
                     </div>
                   </TableCell>
                   <TableCell>
                     {key.isValid ? (
                       <div className="flex items-center gap-1 text-green-400 text-xs">
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                        Valid
+                        <CheckCircle2 className="h-3.5 w-3.5" />Valid
                       </div>
                     ) : (
                       <div className="flex items-center gap-1 text-red-400 text-xs">
-                        <XCircle className="h-3.5 w-3.5" />
-                        Invalid
+                        <XCircle className="h-3.5 w-3.5" />Invalid
                       </div>
                     )}
                   </TableCell>
@@ -243,8 +255,7 @@ export default function ApiKeysPage() {
                   <TableCell>
                     <div className="flex items-center gap-1">
                       <Button
-                        variant="ghost"
-                        size="icon"
+                        variant="ghost" size="icon"
                         className="h-7 w-7 text-muted-foreground hover:text-yellow-400"
                         onClick={() => setDefaultMutation.mutate(key.id)}
                         disabled={key.isDefault || setDefaultMutation.isPending}
@@ -253,28 +264,20 @@ export default function ApiKeysPage() {
                         <Star className={key.isDefault ? 'h-3.5 w-3.5 fill-yellow-400 text-yellow-400' : 'h-3.5 w-3.5'} />
                       </Button>
                       <Button
-                        variant="ghost"
-                        size="icon"
+                        variant="ghost" size="icon"
                         className="h-7 w-7 text-muted-foreground hover:text-blue-400"
                         onClick={() => validateMutation.mutate(key.id)}
                         disabled={validateMutation.isPending}
                         title="Test key"
                       >
-                        {validateMutation.isPending ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <CheckCircle2 className="h-3.5 w-3.5" />
-                        )}
+                        {validateMutation.isPending
+                          ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          : <CheckCircle2 className="h-3.5 w-3.5" />}
                       </Button>
                       <Button
-                        variant="ghost"
-                        size="icon"
+                        variant="ghost" size="icon"
                         className="h-7 w-7 text-muted-foreground hover:text-red-400"
-                        onClick={() => {
-                          if (confirm('Delete this API key?')) {
-                            deleteMutation.mutate(key.id)
-                          }
-                        }}
+                        onClick={() => { if (confirm('Delete this API key?')) deleteMutation.mutate(key.id) }}
                         title="Delete key"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -293,50 +296,58 @@ export default function ApiKeysPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add API Key</DialogTitle>
-            <DialogDescription>
-              Your API key is encrypted and stored securely
-            </DialogDescription>
+            <DialogDescription>Your API key is encrypted and stored securely</DialogDescription>
           </DialogHeader>
 
-          <form
-            onSubmit={handleSubmit((data) => createMutation.mutate(data))}
-            className="space-y-4 mt-2"
-          >
+          <form onSubmit={handleSubmit((data) => createMutation.mutate(data))} className="space-y-4 mt-2">
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label>Name</Label>
                 <Input placeholder="e.g., Production OpenAI" {...register('name')} />
-                {errors.name && (
-                  <p className="text-xs text-destructive">{errors.name.message}</p>
-                )}
+                {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
               </div>
               <div className="space-y-1.5">
                 <Label>Provider</Label>
                 <Select
-                  value={watch('provider')}
-                  onValueChange={(v) => setValue('provider', v as 'openai' | 'gemini')}
+                  value={selectedProvider}
+                  onValueChange={(v) => setValue('provider', v as AddKeyData['provider'])}
                 >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="openai">OpenAI</SelectItem>
+                    <SelectItem value="azure_openai">
+                      <div className="flex items-center gap-2">
+                        <div className="h-1.5 w-1.5 rounded-full bg-blue-400" />
+                        Azure OpenAI
+                      </div>
+                    </SelectItem>
                     <SelectItem value="gemini">Google Gemini</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
 
+            {selectedProvider === 'azure_openai' && (
+              <div className="space-y-1.5">
+                <Label>Azure Endpoint</Label>
+                <Input
+                  placeholder="https://your-resource.openai.azure.com"
+                  className="font-mono text-sm"
+                  {...register('azureEndpoint')}
+                />
+                {errors.azureEndpoint && (
+                  <p className="text-xs text-destructive">{errors.azureEndpoint.message}</p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Found in Azure Portal → your OpenAI resource → Keys and Endpoint
+                </p>
+              </div>
+            )}
+
             <div className="space-y-1.5">
               <Label>API Key</Label>
-              <Input
-                type="password"
-                placeholder={watch('provider') === 'openai' ? 'sk-...' : 'AIza...'}
-                {...register('key')}
-              />
-              {errors.key && (
-                <p className="text-xs text-destructive">{errors.key.message}</p>
-              )}
+              <Input type="password" placeholder={keyPlaceholder()} {...register('key')} />
+              {errors.key && <p className="text-xs text-destructive">{errors.key.message}</p>}
             </div>
 
             <div className="flex items-center justify-between">
@@ -355,11 +366,9 @@ export default function ApiKeysPage() {
                 Cancel
               </Button>
               <Button type="submit" disabled={createMutation.isPending}>
-                {createMutation.isPending ? (
-                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Adding...</>
-                ) : (
-                  'Add Key'
-                )}
+                {createMutation.isPending
+                  ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Adding...</>
+                  : 'Add Key'}
               </Button>
             </DialogFooter>
           </form>

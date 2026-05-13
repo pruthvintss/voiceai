@@ -63,6 +63,8 @@ async def get_active_api_key(
     # Fall back to platform default
     if provider == "openai":
         return settings.OPENAI_DEFAULT_API_KEY
+    if provider == "azure_openai":
+        return settings.AZURE_OPENAI_DEFAULT_API_KEY
     if provider == "gemini":
         return settings.GOOGLE_DEFAULT_API_KEY
     if provider == "anthropic":
@@ -94,11 +96,15 @@ async def create_api_key(
     return key
 
 
-async def validate_api_key(provider: str, plain_key: str) -> ApiKeyValidateResponse:
+async def validate_api_key(
+    provider: str, plain_key: str, azure_endpoint: str = ""
+) -> ApiKeyValidateResponse:
     """Test whether an API key is valid by making a minimal API call."""
     try:
         if provider == "openai":
             return await _validate_openai_key(plain_key)
+        elif provider == "azure_openai":
+            return await _validate_azure_openai_key(plain_key, azure_endpoint)
         elif provider == "gemini":
             return await _validate_gemini_key(plain_key)
         else:
@@ -124,6 +130,25 @@ async def _validate_openai_key(key: str) -> ApiKeyValidateResponse:
     else:
         error = resp.json().get("error", {}).get("message", "Invalid key")
         return ApiKeyValidateResponse(valid=False, provider="openai", error=error)
+
+
+async def _validate_azure_openai_key(key: str, endpoint: str) -> ApiKeyValidateResponse:
+    if not endpoint:
+        return ApiKeyValidateResponse(
+            valid=False, provider="azure_openai", error="azure_endpoint is required"
+        )
+    endpoint = endpoint.rstrip("/")
+    url = f"{endpoint}/openai/deployments?api-version=2024-02-01"
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(url, headers={"api-key": key}, timeout=10.0)
+    if resp.status_code == 200:
+        deployments = [d["id"] for d in resp.json().get("data", [])]
+        return ApiKeyValidateResponse(
+            valid=True, provider="azure_openai", model_list=deployments[:20]
+        )
+    else:
+        error = resp.json().get("error", {}).get("message", "Invalid key or endpoint")
+        return ApiKeyValidateResponse(valid=False, provider="azure_openai", error=error)
 
 
 async def _validate_gemini_key(key: str) -> ApiKeyValidateResponse:

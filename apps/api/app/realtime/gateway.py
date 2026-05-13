@@ -21,6 +21,7 @@ from app.models.workspace import WorkspaceMember
 from app.realtime import protocol as proto
 from app.realtime.audio_pipeline import decode_base64_audio, encode_audio_base64
 from app.realtime.base_provider import BaseVoiceProvider
+from app.realtime.azure_openai_provider import AzureOpenAIRealtimeProvider
 from app.realtime.gemini_provider import GeminiLiveProvider
 from app.realtime.openai_provider import OpenAIRealtimeProvider
 from app.realtime.session_manager import create_session, end_session, update_session_status
@@ -163,6 +164,7 @@ async def handle_websocket_session(websocket: WebSocket) -> None:
         api_key_id_str = start_msg.get("api_key_id")
         custom_system_prompt = start_msg.get("system_prompt", "")
         voice = start_msg.get("voice")
+        azure_endpoint = start_msg.get("azure_endpoint", "")  # required when provider=azure_openai
 
         if not workspace_id_str:
             await websocket.send_json(proto.make_error("missing_field", "workspace_id required"))
@@ -244,7 +246,7 @@ async def handle_websocket_session(websocket: WebSocket) -> None:
         # -----------------------------------------------------------------------
         # Phase 3: Connect to AI provider
         # -----------------------------------------------------------------------
-        provider = _create_provider(provider_name)
+        provider = _create_provider(provider_name, azure_endpoint=azure_endpoint)
         session.provider = provider
 
         # Wire up callbacks
@@ -385,9 +387,13 @@ async def handle_websocket_session(websocket: WebSocket) -> None:
             )
 
 
-def _create_provider(provider_name: str) -> BaseVoiceProvider:
+def _create_provider(provider_name: str, azure_endpoint: str = "") -> BaseVoiceProvider:
     if provider_name == "openai":
         return OpenAIRealtimeProvider()
+    elif provider_name == "azure_openai":
+        if not azure_endpoint:
+            raise ValueError("azure_endpoint is required for azure_openai provider")
+        return AzureOpenAIRealtimeProvider(azure_endpoint=azure_endpoint)
     elif provider_name == "gemini":
         return GeminiLiveProvider()
     else:

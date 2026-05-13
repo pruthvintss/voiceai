@@ -40,6 +40,8 @@ class Settings(BaseSettings):
 
     # AI Provider Keys (platform fallback)
     OPENAI_DEFAULT_API_KEY: Optional[str] = None
+    AZURE_OPENAI_DEFAULT_API_KEY: Optional[str] = None
+    AZURE_OPENAI_DEFAULT_ENDPOINT: Optional[str] = None  # e.g. https://myresource.openai.azure.com
     GOOGLE_DEFAULT_API_KEY: Optional[str] = None
     ANTHROPIC_API_KEY: Optional[str] = None
 
